@@ -5,17 +5,31 @@ const { Logger } = require('../utils/logger');
 
 class Database {
   constructor() {
-    this.dbPath = path.join(__dirname, '..', 'data', 'youtube_automation.db');
+    if (process.env.DB_PATH) {
+      this.dbPath = process.env.DB_PATH;
+    } else if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      this.dbPath = path.join('/tmp', 'youtube_automation.db');
+    } else {
+      this.dbPath = path.join(__dirname, '..', 'data', 'youtube_automation.db');
+    }
     this.db = null;
     this.logger = new Logger('Database');
   }
 
   async initialize() {
     try {
-      this.logger.info('Initializing database...');
+      this.logger.info(`Initializing database at ${this.dbPath}...`);
       
       // Ensure data directory exists
-      await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
+      try {
+        await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
+      } catch (dirErr) {
+        // If directory exists or fails on read-only system, log warning and try /tmp fallback
+        if (dirErr.code === 'EROFS') {
+          this.dbPath = path.join('/tmp', 'youtube_automation.db');
+          await fs.mkdir(path.dirname(this.dbPath), { recursive: true }).catch(() => {});
+        }
+      }
       
       // Connect to database
       this.db = new sqlite3.Database(this.dbPath);
