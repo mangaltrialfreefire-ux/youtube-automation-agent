@@ -4,6 +4,8 @@
   "description": "Lumen is an open-source AI agent that runs a YouTube channel end to end",
   "main": "index.js",
   "scripts": {
+    "dev": "node index.js",
+    "build": "node -e \"process.exit(0)\"",
     "start": "node index.js",
     "setup": "node setup.js",
     "walkthrough": "node walkthrough.js",

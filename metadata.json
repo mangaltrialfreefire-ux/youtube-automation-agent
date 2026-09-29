@@ -1,0 +1,7 @@
+{
+  "name": "YouTube Automation Studio",
+  "description": "Lumen is an autonomous AI agent that researches, plans, produces, and manages a YouTube channel end to end.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

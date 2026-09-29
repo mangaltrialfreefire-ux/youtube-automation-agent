@@ -1831,8 +1831,8 @@ class YouTubeAutomationAgent {
       process.exit(1);
     }
     
-    const PORT = process.env.PORT || 3456;
-    this.app.listen(PORT, () => {
+    const PORT = process.env.PORT || 3000;
+    this.app.listen(PORT, '0.0.0.0', () => {
       console.log(chalk.green(`\n✅ YouTube Automation Agent running on port ${PORT}`));
       console.log(chalk.gray('─'.repeat(50)));
       console.log(chalk.white('📊 Dashboard: ') + chalk.cyan(`http://localhost:${PORT}`));
