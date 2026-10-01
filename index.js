@@ -1966,7 +1966,7 @@ class YouTubeAutomationAgent {
     }
     
     const PORT = process.env.PORT || 3000;
-    this.app.listen(PORT, '0.0.0.0', () => {
+    const server = this.app.listen(PORT, '0.0.0.0', () => {
       console.log(chalk.green(`\n✅ YouTube Automation Agent running on port ${PORT}`));
       console.log(chalk.gray('─'.repeat(50)));
       console.log(chalk.white('📊 Dashboard: ') + chalk.cyan(`http://localhost:${PORT}`));
@@ -1980,6 +1980,20 @@ class YouTubeAutomationAgent {
         console.log(chalk.yellow('\n🤖 Automation is active. Approved content will be published on schedule.'));
       }
     });
+
+    const shutdown = (signal) => {
+      console.log(chalk.yellow(`\nReceived ${signal}. Shutting down gracefully...`));
+      server.close(() => {
+        console.log(chalk.green('Server closed cleanly.'));
+        process.exit(0);
+      });
+      setTimeout(() => {
+        process.exit(0);
+      }, 4000).unref();
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   }
 }
 

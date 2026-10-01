@@ -116,6 +116,12 @@ module.exports = async (req, res) => {
   // 4. Initial dashboard state fallback if Railway backend is not connected yet
   if (req.url === '/api/dashboard') {
     return res.json({
+      system: {
+        initialized: true,
+        setupRequired: false,
+        automationPaused: false,
+        agents: ['ResearchAgent', 'ProductionAgent', 'ReviewAgent', 'AnalyticsAgent']
+      },
       stats: { totalVideos: 0, pendingReviews: 0, scheduled: 0, published: 0 },
       jobs: [],
       pipeline: [],

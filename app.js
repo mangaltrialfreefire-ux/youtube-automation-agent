@@ -116,42 +116,46 @@ async function refreshDashboard(silent = false) {
 }
 
 function renderDashboard() {
-  const state = ui.state;
-  const reviews = state.pipeline.filter(item => ['needs_review', 'needs_attention'].includes(item.review_status));
-  const scheduled = state.schedule.filter(item => item.status === 'scheduled');
-  const actionableJobs = state.jobs.filter(job => ['queued', 'running', 'failed', 'interrupted'].includes(job.status));
+  const state = ui.state || {};
+  const system = state.system || { initialized: true, setupRequired: false, automationPaused: false, agents: [] };
+  const pipeline = Array.isArray(state.pipeline) ? state.pipeline : [];
+  const schedule = Array.isArray(state.schedule) ? state.schedule : [];
+  const jobs = Array.isArray(state.jobs) ? state.jobs : [];
+  const reviews = pipeline.filter(item => ['needs_review', 'needs_attention'].includes(item.review_status));
+  const scheduled = schedule.filter(item => item.status === 'scheduled');
+  const actionableJobs = jobs.filter(job => ['queued', 'running', 'failed', 'interrupted'].includes(job.status));
 
-  $('#brand-name').textContent = state.profile?.channel_name || 'Automation Studio';
-  $('#setup-banner').classList.toggle('hidden', !state.system.setupRequired);
-  $('#system-label').textContent = state.system.setupRequired
+  $('#brand-name').textContent = state.profile?.channel_name || state.profile?.channelName || 'Automation Studio';
+  $('#setup-banner').classList.toggle('hidden', !system.setupRequired);
+  $('#system-label').textContent = system.setupRequired
     ? 'Setup required'
-    : state.system.automationPaused ? 'Automation paused' : `${state.system.agents.length} agents online`;
-  $('#system-dot').classList.toggle('online', state.system.initialized && !state.system.automationPaused && !state.system.setupRequired);
-  $('#automation-toggle').textContent = state.system.automationPaused ? 'Resume automation' : 'Pause automation';
-  $('#automation-toggle').disabled = state.system.setupRequired;
-  $('#generate-button').disabled = state.system.setupRequired;
+    : system.automationPaused ? 'Automation paused' : `${system.agents?.length || 0} agents online`;
+  $('#system-dot').classList.toggle('online', Boolean(system.initialized && !system.automationPaused && !system.setupRequired));
+  $('#automation-toggle').textContent = system.automationPaused ? 'Resume automation' : 'Pause automation';
+  $('#automation-toggle').disabled = Boolean(system.setupRequired);
+  $('#generate-button').disabled = Boolean(system.setupRequired);
   $('#review-badge').textContent = reviews.length;
   $('#review-badge').classList.toggle('hidden', reviews.length === 0);
 
   $('#stat-review').textContent = reviews.length;
   $('#stat-scheduled').textContent = scheduled.length;
-  $('#stat-published').textContent = state.stats.published || 0;
-  $('#stat-score').textContent = state.analytics.averagePerformanceScore ? `${state.analytics.averagePerformanceScore}/100` : '—';
+  $('#stat-published').textContent = state.stats?.published || 0;
+  $('#stat-score').textContent = state.analytics?.averagePerformanceScore ? `${state.analytics.averagePerformanceScore}/100` : '—';
 
   renderReviews(reviews);
-  renderJobs(actionableJobs.length ? actionableJobs : state.jobs.slice(0, 5));
-  renderSchedule(state.schedule.slice(0, 5), '#next-schedule');
-  renderNotifications(state.notifications, state.events);
-  renderPipeline(state.pipeline);
-  renderCalendar(state.schedule);
-  renderIdeas(state.ideas);
-  renderAnalytics(state.analytics, state.learning);
+  renderJobs(actionableJobs.length ? actionableJobs : jobs.slice(0, 5));
+  renderSchedule(schedule.slice(0, 5), '#next-schedule');
+  renderNotifications(state.notifications || [], state.events || []);
+  renderPipeline(pipeline);
+  renderCalendar(schedule);
+  renderIdeas(state.ideas || []);
+  renderAnalytics(state.analytics || {}, state.learning || null);
   renderGrowthExperiments(state.experiments || {});
-  renderEngagement(ui.state.engagement || {});
-  renderActivation(state.activation);
-  renderReadiness(state.readiness);
-  renderOperator(state.channelStrategy, state.operatorRuns || [], { ...state.system, readiness: state.readiness });
-  populateSettings(state.profile, state.settings, state.system.videoProviders || []);
+  renderEngagement(state.engagement || {});
+  renderActivation(state.activation || {});
+  renderReadiness(state.readiness || { status: 'healthy', checks: [] });
+  renderOperator(state.channelStrategy || null, state.operatorRuns || [], { ...system, readiness: state.readiness });
+  populateSettings(state.profile || {}, state.settings || {}, system.videoProviders || []);
 }
 
 function renderReadiness(readiness = {}) {

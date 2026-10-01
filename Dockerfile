@@ -26,4 +26,4 @@ ENV PORT=3000
 EXPOSE 3000
 
 # Run YouTube Automation Agent
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
