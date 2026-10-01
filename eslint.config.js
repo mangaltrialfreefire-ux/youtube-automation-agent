@@ -61,7 +61,7 @@ module.exports = [
     }
   },
   {
-    files: ['dashboard/firebase-client.js'],
+    files: ['dashboard/firebase-client.js', 'public/firebase-client.js'],
     languageOptions: {
       sourceType: 'module'
     }
