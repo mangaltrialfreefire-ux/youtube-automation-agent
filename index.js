@@ -27,6 +27,7 @@ const { AudienceEngagementService } = require('./utils/audience-engagement-servi
 const { GrowthExperimentService } = require('./utils/growth-experiment-service');
 const { AITextService } = require('./utils/ai-text-service');
 const { DiscoverabilityService } = require('./utils/discoverability-service');
+const { GeminiCreativeService } = require('./utils/gemini-creative-service');
 const { version } = require('./package.json');
 const chalk = require('chalk');
 
@@ -52,6 +53,7 @@ class YouTubeAutomationAgent {
     this.experiments = null;
     this.discoverability = null;
     this.setupRequired = false;
+    this.creative = new GeminiCreativeService();
   }
 
   async initialize() {
@@ -373,7 +375,15 @@ class YouTubeAutomationAgent {
     };
   }
   setupAPI() {
-    this.app.use(express.json({ limit: '1mb' }));
+    const cors = require('cors');
+    this.app.use(cors({
+      origin: true,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+    }));
+
+    this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.static(path.join(__dirname, 'dashboard')));
 
     if (!process.env.API_KEY) {
@@ -466,7 +476,131 @@ class YouTubeAutomationAgent {
       }
     });
 
+    this.setupCreativeAPI();
     this.setupOperatorAPI();
+  }
+
+  setupCreativeAPI() {
+    if (!this.creative) {
+      this.creative = new GeminiCreativeService();
+    }
+
+    // 1. Veo 3 Video Generation: veo-3.1-fast-generate-preview
+    const handleGenerateVideo = async (req, res) => {
+      try {
+        const { prompt, aspectRatio, resolution } = req.body || {};
+        if (!prompt) {
+          return res.status(400).json({ success: false, error: 'Prompt is required for video generation' });
+        }
+        const result = await this.creative.startVideoGeneration({ prompt, aspectRatio, resolution });
+        res.json({ success: true, ...result });
+      } catch (error) {
+        this.logger.error('Video generation error:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/generate-video', handleGenerateVideo);
+    this.app.post('/api/creative/video', handleGenerateVideo);
+
+    // Video status check
+    const handleVideoStatus = async (req, res) => {
+      try {
+        const operationName = req.body?.operationName || req.query?.operationName;
+        if (!operationName) {
+          return res.status(400).json({ success: false, error: 'operationName is required' });
+        }
+        const status = await this.creative.getVideoStatus(operationName);
+        res.json({ success: true, ...status });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/video-status', handleVideoStatus);
+    this.app.post('/api/creative/video-status', handleVideoStatus);
+
+    // Video download / stream proxy
+    const handleVideoDownload = async (req, res) => {
+      try {
+        const operationName = req.body?.operationName || req.query?.operationName;
+        if (!operationName) {
+          return res.status(400).json({ success: false, error: 'operationName is required' });
+        }
+        const status = await this.creative.getVideoStatus(operationName);
+        if (!status.done || !status.videoUri) {
+          return res.status(404).json({ success: false, error: 'Video is not yet ready for download' });
+        }
+        const apiKey = process.env.GEMINI_API_KEY;
+        const videoRes = await fetch(status.videoUri, {
+          headers: apiKey ? { 'x-goog-api-key': apiKey } : {}
+        });
+        if (!videoRes.ok) {
+          throw new Error(`Failed to fetch video: ${videoRes.statusText}`);
+        }
+        const buffer = Buffer.from(await videoRes.arrayBuffer());
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', 'inline; filename="veo3-generated-video.mp4"');
+        res.send(buffer);
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/video-download', handleVideoDownload);
+    this.app.get('/api/video-download', handleVideoDownload);
+    this.app.get('/api/creative/video-proxy', handleVideoDownload);
+
+    // 2. Search Grounding with Google Search: gemini-3.5-flash
+    const handleSearchGrounding = async (req, res) => {
+      try {
+        const { query, prompt, systemInstruction } = req.body || {};
+        const result = await this.creative.searchGrounding({ query, prompt, systemInstruction });
+        res.json({ success: true, result });
+      } catch (error) {
+        this.logger.error('Search grounding error:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/search-grounding', handleSearchGrounding);
+    this.app.post('/api/creative/search-grounding', handleSearchGrounding);
+
+    // 3. Create & Edit Images: gemini-3.1-flash-image-preview
+    const handleImage = async (req, res) => {
+      try {
+        const { prompt, inputImageBase64, mimeType, aspectRatio } = req.body || {};
+        if (!prompt) {
+          return res.status(400).json({ success: false, error: 'Prompt is required' });
+        }
+        const result = await this.creative.generateOrEditImage({
+          prompt,
+          inputImageBase64,
+          mimeType,
+          aspectRatio
+        });
+        res.json({ success: true, result });
+      } catch (error) {
+        this.logger.error('Image generation/edit error:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/generate-image', handleImage);
+    this.app.post('/api/edit-image', handleImage);
+    this.app.post('/api/creative/image', handleImage);
+
+    // 4. Generate Music: lyria-3-clip-preview & lyria-3-pro-preview
+    const handleMusic = async (req, res) => {
+      try {
+        const { prompt, trackType } = req.body || {};
+        if (!prompt) {
+          return res.status(400).json({ success: false, error: 'Prompt is required for music generation' });
+        }
+        const result = await this.creative.generateMusic({ prompt, trackType });
+        res.json({ success: true, result });
+      } catch (error) {
+        this.logger.error('Music generation error:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    };
+    this.app.post('/api/generate-music', handleMusic);
+    this.app.post('/api/creative/music', handleMusic);
   }
 
   setupOperatorAPI() {

@@ -30,9 +30,16 @@ function requestApiKey() {
   return key;
 }
 
+function getBackendBase() {
+  const custom = localStorage.getItem('railway_backend_url');
+  if (custom && custom.trim()) return custom.trim().replace(/\/+$/, '');
+  return '';
+}
+
 async function api(url, options = {}, retry = true) {
   const key = apiKey();
-  const response = await fetch(url, {
+  const fullUrl = url.startsWith('/') ? (getBackendBase() + url) : url;
+  const response = await fetch(fullUrl, {
     ...options,
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -786,6 +793,7 @@ function switchView(view) {
   $$('.view').forEach(item => item.classList.toggle('active', item.id === `${view}-view`));
   const titles = {
     overview: ['OPERATOR OVERVIEW', 'Know what happens next.'],
+    creative: ['CREATIVE STUDIO', 'Generate Veo 3 video, search grounding, visuals & music.'],
     operator: ['AUTONOMOUS OPERATOR', 'Give Lumen the strategy.'],
     pipeline: ['CONTENT OPERATIONS', 'From idea to published.'],
     calendar: ['EDITORIAL PLANNING', 'Plan before you generate.'],
@@ -1728,6 +1736,14 @@ $('#profile-form').addEventListener('submit', async event => {
   const values = Object.fromEntries(new FormData(event.currentTarget));
   values.bannedTopics = values.bannedTopics.split(',').map(value => value.trim()).filter(Boolean);
   try {
+    const railwayUrl = $('#railway-url-input')?.value?.trim();
+    if (railwayUrl !== undefined) {
+      if (railwayUrl) {
+        localStorage.setItem('railway_backend_url', railwayUrl);
+      } else {
+        localStorage.removeItem('railway_backend_url');
+      }
+    }
     await mutate('/api/profile', 'PUT', values, 'Channel setup saved.');
     await mutate('/api/settings', 'PUT', {
       approval_required: $('#approval-required').checked,
@@ -1745,7 +1761,310 @@ $('#api-key-button').addEventListener('click', () => {
   if (requestApiKey() !== null) showToast('Dashboard API key saved in this browser.');
 });
 
+/* ============================================================
+   CREATIVE STUDIO & AI LAB (Veo 3, Search Grounding, Image, Music)
+   ============================================================ */
+
+// 1. Veo 3 Video Generator
+const veoForm = $('#veo-form');
+if (veoForm) {
+  veoForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const prompt = $('#veo-prompt').value.trim();
+    const aspectRatio = $('#veo-aspect-ratio').value;
+    const resolution = $('#veo-resolution').value;
+    const submitBtn = $('#veo-submit-btn');
+    const indicator = $('#veo-status-indicator');
+    const outputContainer = $('#veo-output-container');
+    const videoPlayer = $('#veo-video-player');
+    const downloadBtn = $('#veo-download-btn');
+    const ratioBadge = $('#veo-ratio-badge');
+
+    if (!prompt) return;
+
+    submitBtn.disabled = true;
+    indicator.textContent = 'Initiating Veo 3 generation...';
+    outputContainer.classList.add('hidden');
+
+    try {
+      const response = await fetch(getBackendBase() + '/api/creative/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, aspectRatio, resolution })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to start video generation');
+
+      const operationName = data.operationName;
+      const statusMessages = [
+        'Veo 3 is rendering video frames...',
+        'Synthesizing cinematic motion & camera physics...',
+        'Refining high-definition temporal consistency...',
+        'Encoding and finalizing MP4 stream...'
+      ];
+      let pollIndex = 0;
+
+      const pollInterval = setInterval(async () => {
+        try {
+          pollIndex = (pollIndex + 1) % statusMessages.length;
+          indicator.textContent = statusMessages[pollIndex];
+
+          const statusRes = await fetch(getBackendBase() + '/api/creative/video-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ operationName })
+          });
+          const statusData = await statusRes.json();
+
+          if (statusData.done) {
+            clearInterval(pollInterval);
+            submitBtn.disabled = false;
+            indicator.textContent = 'Generation complete!';
+            showToast('Veo 3 video generation complete!');
+
+            const downloadUrl = `${getBackendBase()}/api/creative/video-proxy?operationName=${encodeURIComponent(operationName)}`;
+            videoPlayer.src = downloadUrl;
+            videoPlayer.load();
+            downloadBtn.href = downloadUrl;
+            ratioBadge.textContent = `${aspectRatio} · ${resolution}`;
+            outputContainer.classList.remove('hidden');
+
+            if (window.FirebaseApp?.saveCreationToFirestore) {
+              window.FirebaseApp.saveCreationToFirestore({
+                type: 'video',
+                prompt,
+                metadata: { aspectRatio, resolution, model: 'veo-3.1-fast-generate-preview' },
+                resultUrl: downloadUrl
+              });
+            }
+          } else if (statusData.error) {
+            clearInterval(pollInterval);
+            submitBtn.disabled = false;
+            indicator.textContent = 'Generation failed.';
+            showToast(`Veo 3 Error: ${statusData.error.message || 'Operation failed'}`);
+          }
+        } catch (pollErr) {
+          console.warn('Poll error:', pollErr);
+        }
+      }, 4000);
+    } catch (err) {
+      submitBtn.disabled = false;
+      indicator.textContent = '';
+      showToast(`Error: ${err.message}`);
+    }
+  });
+}
+
+// 2. Google Search Grounding
+const groundingForm = $('#grounding-form');
+if (groundingForm) {
+  groundingForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const prompt = $('#grounding-prompt').value.trim();
+    const submitBtn = $('#grounding-submit-btn');
+    const status = $('#grounding-status');
+    const outputContainer = $('#grounding-output-container');
+    const sourcesContainer = $('#grounding-sources');
+    const textContainer = $('#grounding-text');
+
+    if (!prompt) return;
+
+    submitBtn.disabled = true;
+    status.textContent = 'Grounding with Google Search...';
+    outputContainer.classList.add('hidden');
+    sourcesContainer.innerHTML = '';
+
+    try {
+      const response = await fetch(getBackendBase() + '/api/creative/search-grounding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Search grounding failed');
+
+      textContainer.textContent = data.result.text;
+
+      const metadata = data.result.groundingMetadata;
+      if (metadata) {
+        if (metadata.webSearchQueries && metadata.webSearchQueries.length) {
+          metadata.webSearchQueries.forEach(q => {
+            const chip = document.createElement('span');
+            chip.className = 'badge';
+            chip.style.cssText = 'background: var(--surface-3); color: var(--blue); border: 1px solid var(--line); font-size: 11px;';
+            chip.textContent = `🔍 ${q}`;
+            sourcesContainer.appendChild(chip);
+          });
+        }
+        if (metadata.groundingChunks && metadata.groundingChunks.length) {
+          metadata.groundingChunks.forEach(chunk => {
+            if (chunk.web?.uri) {
+              const link = document.createElement('a');
+              link.href = chunk.web.uri;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.className = 'text-button';
+              link.style.cssText = 'font-size: 11px; color: var(--blue); padding: 2px 6px;';
+              link.textContent = chunk.web.title || chunk.web.uri;
+              sourcesContainer.appendChild(link);
+            }
+          });
+        }
+      }
+
+      outputContainer.classList.remove('hidden');
+      status.textContent = 'Grounding complete!';
+      showToast('Search Grounding complete!');
+
+      if (window.FirebaseApp?.saveCreationToFirestore) {
+        window.FirebaseApp.saveCreationToFirestore({
+          type: 'search_grounding',
+          prompt,
+          metadata: { model: 'gemini-3.5-flash', textSnippet: data.result.text.slice(0, 300) }
+        });
+      }
+    } catch (err) {
+      showToast(`Grounding Error: ${err.message}`);
+      status.textContent = '';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// 3. Image Creation & Editing
+const imageForm = $('#image-form');
+if (imageForm) {
+  imageForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const prompt = $('#image-prompt').value.trim();
+    const aspectRatio = $('#image-aspect-ratio').value;
+    const fileInput = $('#image-file-input');
+    const submitBtn = $('#image-submit-btn');
+    const status = $('#image-status');
+    const outputContainer = $('#image-output-container');
+    const preview = $('#image-output-preview');
+    const caption = $('#image-caption');
+    const downloadBtn = $('#image-download-btn');
+
+    if (!prompt) return;
+
+    submitBtn.disabled = true;
+    status.textContent = 'Generating visual...';
+    outputContainer.classList.add('hidden');
+
+    try {
+      let inputImageBase64 = null;
+      let mimeType = 'image/png';
+
+      if (fileInput.files && fileInput.files[0]) {
+        const file = fileInput.files[0];
+        mimeType = file.type || 'image/png';
+        inputImageBase64 = await new Promise((resolve, reject) => {
+          const reader = new window.FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        status.textContent = 'Editing source image...';
+      }
+
+      const response = await fetch(getBackendBase() + '/api/creative/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, inputImageBase64, mimeType, aspectRatio })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to generate visual');
+
+      preview.src = data.result.imageUrl;
+      caption.textContent = data.result.description || `${data.result.aspectRatio} · gemini-3.1-flash-image-preview`;
+      downloadBtn.href = data.result.imageUrl;
+      outputContainer.classList.remove('hidden');
+      status.textContent = 'Image ready!';
+      showToast('Image generated successfully!');
+
+      if (window.FirebaseApp?.saveCreationToFirestore) {
+        window.FirebaseApp.saveCreationToFirestore({
+          type: 'image',
+          prompt,
+          metadata: { aspectRatio, isEdit: Boolean(inputImageBase64), model: 'gemini-3.1-flash-image-preview' }
+        });
+      }
+    } catch (err) {
+      showToast(`Image Error: ${err.message}`);
+      status.textContent = '';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// 4. Music Generation
+const musicForm = $('#music-form');
+if (musicForm) {
+  musicForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const prompt = $('#music-prompt').value.trim();
+    const trackType = $('#music-track-type').value;
+    const submitBtn = $('#music-submit-btn');
+    const status = $('#music-status');
+    const outputContainer = $('#music-output-container');
+    const audioPlayer = $('#music-audio-player');
+    const lyricsBox = $('#music-lyrics-box');
+    const downloadBtn = $('#music-download-btn');
+
+    if (!prompt) return;
+
+    submitBtn.disabled = true;
+    status.textContent = trackType === 'pro' ? 'Composing full track with Lyria Pro...' : 'Synthesizing audio with Lyria Clip...';
+    outputContainer.classList.add('hidden');
+    lyricsBox.classList.add('hidden');
+
+    try {
+      const response = await fetch(getBackendBase() + '/api/creative/music', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, trackType })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Music generation failed');
+
+      audioPlayer.src = data.result.audioDataUrl;
+      audioPlayer.load();
+      downloadBtn.href = data.result.audioDataUrl;
+
+      if (data.result.lyrics) {
+        lyricsBox.textContent = `Generated Lyrics / Structure:\n${data.result.lyrics}`;
+        lyricsBox.classList.remove('hidden');
+      }
+
+      outputContainer.classList.remove('hidden');
+      status.textContent = 'Music ready!';
+      showToast('Soundtrack generated successfully!');
+
+      if (window.FirebaseApp?.saveCreationToFirestore) {
+        window.FirebaseApp.saveCreationToFirestore({
+          type: 'music',
+          prompt,
+          metadata: { trackType, model: data.result.model }
+        });
+      }
+    } catch (err) {
+      showToast(`Music Error: ${err.message}`);
+      status.textContent = '';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+const railwayInput = $('#railway-url-input');
+if (railwayInput) {
+  railwayInput.value = localStorage.getItem('railway_backend_url') || '';
+}
+
 const initialView = location.hash.slice(1);
-if (['overview', 'operator', 'pipeline', 'calendar', 'analytics', 'engagement', 'readiness', 'settings'].includes(initialView)) switchView(initialView);
+if (['overview', 'creative', 'operator', 'pipeline', 'calendar', 'analytics', 'engagement', 'readiness', 'settings'].includes(initialView)) switchView(initialView);
 refreshDashboard();
 setInterval(() => refreshDashboard(true), 8000);

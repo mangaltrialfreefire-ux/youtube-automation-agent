@@ -48,7 +48,8 @@ module.exports = [
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
         IntersectionObserver: 'readonly',
-        PointerEvent: 'readonly'
+        PointerEvent: 'readonly',
+        CustomEvent: 'readonly'
       }
     },
     rules: {
@@ -57,6 +58,12 @@ module.exports = [
         varsIgnorePattern: '^_',
         caughtErrors: 'none'
       }]
+    }
+  },
+  {
+    files: ['dashboard/firebase-client.js'],
+    languageOptions: {
+      sourceType: 'module'
     }
   }
 ];
