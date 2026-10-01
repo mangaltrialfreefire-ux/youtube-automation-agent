@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "build": "node -e \"const fs = require('fs'); fs.cpSync('dashboard', 'public', { recursive: true });\"",
+    "build": "node -e \"const fs = require('fs'); fs.cpSync('dashboard', 'public', { recursive: true }); for (const f of fs.readdirSync('dashboard')) fs.copyFileSync('dashboard/' + f, f);\"",
     "start": "node index.js",
     "setup": "node setup.js",
     "walkthrough": "node walkthrough.js",
